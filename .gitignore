@@ -1,0 +1,6 @@
+*.txt
+*.vcf
+WhatsApp*
+encrypted.html
+_build/
+.DS_Store

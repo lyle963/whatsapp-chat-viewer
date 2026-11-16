@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Chat</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:15px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;background:#efeae2;max-width:900px;margin:0 auto;box-shadow:0 0 20px #0002}
+header{background:#008069;color:#fff;padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));display:flex;align-items:center;gap:12px;flex:none}
+.av{width:38px;height:38px;border-radius:50%;background:#dfe5e7;color:#667781;display:grid;place-items:center;font-weight:600}
+#cal{margin-left:auto;font:inherit;font-size:13px;border:0;border-radius:6px;padding:4px 6px;background:#fff;color:#111}
+header b{font-size:17px;font-weight:500}
+#chat{flex:1;overflow-y:auto;padding:8px 6%;display:flex;flex-direction:column;gap:2px;overscroll-behavior:contain}
+.m{max-width:75%;padding:6px 8px 4px;border-radius:8px;background:#fff;box-shadow:0 1px .5px #0002;align-self:flex-start;white-space:pre-wrap;overflow-wrap:anywhere}
+.m.me{background:#d9fdd3;align-self:flex-end}
+.m time{float:right;margin:6px 0 -2px 10px;font-size:11px;color:#667781}
+.m i{color:#667781}
+.m a{color:#027eb5}
+.sys,.day{align-self:center;background:#fff;color:#54656f;font-size:12.5px;padding:5px 10px;border-radius:8px;box-shadow:0 1px .5px #0002;margin:8px 0;text-align:center;max-width:85%}
+#lock{position:fixed;inset:0;background:#008069;display:grid;place-items:center;z-index:9}
+#lock form{background:#fff;padding:28px;border-radius:12px;display:flex;flex-direction:column;gap:12px;width:min(320px,90vw);text-align:center}
+#lock input,#lock button{font:inherit;padding:10px;border-radius:8px;border:1px solid #ccc}
+#lock button{background:#008069;color:#fff;border:0;cursor:pointer}
+#lock p{margin:0;color:#c00;min-height:1.3em;font-size:13px}
+.day{background:#fff;text-transform:uppercase;font-size:12px}
+</style></head><body>
+<div id="lock"><form id="f"><b>Password</b><input id="pw" type="password" autofocus autocomplete="off"><button>Enter</button><p id="err"></p></form></div>
+<header><div class="av" id="av"></div><b id="name"></b><input type="date" id="cal" title="Jump to date"></header>
+<div id="chat"></div>
+<script>
+const ENC=__DATA__;
+f.onsubmit=async e=>{
+  e.preventDefault();err.textContent='';
+  try{
+    const b=Uint8Array.from(atob(ENC),c=>c.charCodeAt(0)),salt=b.slice(8,16),k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw.value),'PBKDF2',false,['deriveBits']);
+    const kb=new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:100000,hash:'SHA-256'},k,384));
+    const key=await crypto.subtle.importKey('raw',kb.slice(0,32),'AES-CBC',false,['decrypt']);
+    const plain=await crypto.subtle.decrypt({name:'AES-CBC',iv:kb.slice(32)},key,b.slice(16));
+    lock.remove();run(JSON.parse(new TextDecoder().decode(plain)));
+  }catch(_){err.textContent='Wrong password';pw.select()}
+};
+function run(D){
+const chat=document.getElementById('chat'), N=400;
+document.title=D.other;name.textContent=D.other;av.textContent=D.other[0];
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const fmt=s=>esc(s).replace(/&lt;(Media omitted|This message was edited|This message was deleted)&gt;|(You deleted this message|This message was deleted)/g,'<i>$&</i>').replace(/https?:\/\/[^\s<]+/g,u=>`<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+const MO=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const dayLabel=d=>{const[a,b,c]=d.split('/');return`${+a} ${MO[b-1]} 20${c}`};
+function build(from,to,fresh){
+  const f=document.createDocumentFragment();let last=from&&!fresh?D.msgs[from-1][0]:null;
+  for(let i=from;i<to;i++){
+    const[d,t,w,x]=D.msgs[i];
+    if(d!==last){const e=document.createElement('div');e.className='day';e.textContent=dayLabel(d);f.append(e);last=d}
+    const e=document.createElement('div');
+    if(!w){e.className='sys';e.textContent=x}
+    else{e.className='m'+(w===D.me?' me':'');e.innerHTML=fmt(x)+`<time>${t}</time>`}
+    f.append(e);
+  }
+  return f;
+}
+const iso=d=>'20'+d.slice(6,8)+'-'+d.slice(3,5)+'-'+d.slice(0,2), keys=D.msgs.map(m=>iso(m[0])), L=D.msgs.length;
+let start,end;
+function show(a,b){chat.replaceChildren(build(a,b,true));start=a;end=b}
+show(Math.max(0,L-N),L);
+chat.scrollTop=chat.scrollHeight;
+cal.min=keys[0];cal.max=keys[L-1];
+cal.onchange=()=>{
+  if(!cal.value)return;
+  let i=keys.findIndex(k=>k>=cal.value);if(i<0)i=L-1;
+  show(i,Math.min(L,i+N));chat.scrollTop=0;
+};
+chat.addEventListener('scroll',()=>{
+  if(chat.scrollTop<300&&start){
+    const prev=chat.scrollHeight,s=Math.max(0,start-N);
+    // drop the first day divider so the boundary day isn't duplicated
+    const first=chat.firstElementChild;if(first&&first.className==='day'&&D.msgs[start][0]===D.msgs[start-1][0])first.remove();
+    chat.prepend(build(s,start));start=s;
+    chat.scrollTop+=chat.scrollHeight-prev;
+  }
+  if(end<L&&chat.scrollHeight-chat.scrollTop-chat.clientHeight<300){
+    const e=Math.min(L,end+N);chat.append(build(end,e));end=e;
+  }
+});
+}
+</script></body></html>
